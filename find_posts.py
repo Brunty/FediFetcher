@@ -556,6 +556,11 @@ def parse_url(url, parsed_urls):
         match = parse_mastodon_url(url)
         if match is not None:
             parsed_urls[url] = match
+
+    if url not in parsed_urls:
+        match = parse_mastodon_uri(url)
+        if match is not None:
+            parsed_urls[url] = match
     
     if url not in parsed_urls:
         match = parse_pleroma_url(url)
@@ -601,6 +606,14 @@ def parse_mastodon_url(url):
         return (match.group("server"), match.group("toot_id"))
     return None
 
+def parse_mastodon_uri(uri):
+    """parse a Mastodon URI and return the server and ID"""
+    match = re.match(
+        r"https://(?P<server>[^/]+)/users/(?P<username>[^/]+)/statuses/(?P<toot_id>[^/]+)", uri
+    )
+    if match is not None:
+        return (match.group("server"), match.group("toot_id"))
+    return None
 
 def parse_pleroma_url(url):
     """parse a Pleroma URL and return the server and ID"""
@@ -733,11 +746,6 @@ def get_mastodon_urls(webserver, toot_id, toot_url):
         except Exception as ex:
             log(f"Error parsing context for toot {toot_url}. Exception: {ex}")
         return []
-    elif resp.status_code == 429:
-        reset = datetime.strptime(resp.headers['x-ratelimit-reset'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        log(f"Rate Limit hit when getting context for {toot_url}. Waiting to retry at {resp.headers['x-ratelimit-reset']}")
-        time.sleep((reset - datetime.now()).total_seconds() + 1)
-        return get_mastodon_urls(webserver, toot_id, toot_url)
 
     log(
         f"Error getting context for toot {toot_url}. Status code: {resp.status_code}"
@@ -770,11 +778,6 @@ def get_lemmy_comment_context(webserver, toot_id, toot_url):
         except Exception as ex:
             log(f"Error parsing context for comment {toot_url}. Exception: {ex}")
         return []
-    elif resp.status_code == 429:
-        reset = datetime.strptime(resp.headers['x-ratelimit-reset'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        log(f"Rate Limit hit when getting context for {toot_url}. Waiting to retry at {resp.headers['x-ratelimit-reset']}")
-        time.sleep((reset - datetime.now()).total_seconds() + 1)
-        return get_lemmy_comment_context(webserver, toot_id, toot_url)
 
 def get_lemmy_comments_urls(webserver, post_id, toot_url):
     """get the URLs of the comments of the given post"""
@@ -811,11 +814,6 @@ def get_lemmy_comments_urls(webserver, post_id, toot_url):
             return urls
         except Exception as ex:
             log(f"Error parsing comments for post {toot_url}. Exception: {ex}")
-    elif resp.status_code == 429:
-        reset = datetime.strptime(resp.headers['x-ratelimit-reset'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        log(f"Rate Limit hit when getting comments for {toot_url}. Waiting to retry at {resp.headers['x-ratelimit-reset']}")
-        time.sleep((reset - datetime.now()).total_seconds() + 1)
-        return get_lemmy_comments_urls(webserver, post_id, toot_url)
 
     log(f"Error getting comments for post {toot_url}. Status code: {resp.status_code}")
     return []
@@ -901,11 +899,6 @@ def add_context_url(url, server, access_token):
             "Make sure you have the read:search scope enabled for your access token."
         )
         return False
-    elif resp.status_code == 429:
-        reset = datetime.strptime(resp.headers['x-ratelimit-reset'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        log(f"Rate Limit hit when adding url {search_url}. Waiting to retry at {resp.headers['x-ratelimit-reset']}")
-        time.sleep((reset - datetime.now()).total_seconds() + 1)
-        return add_context_url(url, server, access_token)
     else:
         log(
             f"Error adding url {search_url} to server {server}. Status code: {resp.status_code}"
@@ -1142,6 +1135,7 @@ def get_nodeinfo(server, seen_hosts, host_meta_fallback = False):
             return None
 
     if resp.status_code == 200:
+        nodeLoc = None
         try:
             nodeInfo = resp.json()
             for link in nodeInfo['links']:
@@ -1174,7 +1168,7 @@ def get_nodeinfo(server, seen_hosts, host_meta_fallback = False):
 
     # return early if the web domain has been seen previously (in cases with host-meta lookups)
     if server in seen_hosts:
-        return seen_hosts[server]
+        return seen_hosts.get(server)
 
     try:
         resp = get(nodeLoc, timeout = 30)
@@ -1224,8 +1218,8 @@ def get_server_info(server, seen_hosts):
 def set_server_apis(server):
     # support for new server software should be added here
     software_apis = {
-        'mastodonApiSupport': ['mastodon', 'pleroma', 'akkoma', 'pixelfed', 'hometown'],
-        'misskeyApiSupport': ['misskey', 'calckey', 'firefish', 'foundkey'],
+        'mastodonApiSupport': ['mastodon', 'pleroma', 'akkoma', 'pixelfed', 'hometown', 'iceshrimp'],
+        'misskeyApiSupport': ['misskey', 'calckey', 'firefish', 'foundkey', 'sharkey'],
         'lemmyApiSupport': ['lemmy']
     }
 
